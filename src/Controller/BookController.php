@@ -69,7 +69,6 @@ class BookController extends AbstractController
     {
         $em->remove($book);
         $em->flush();
-
         return new JsonResponse(null, Response::HTTP_NO_CONTENT);
     }
 
