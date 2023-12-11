@@ -8,16 +8,18 @@ use App\Repository\BookRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Serializable;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Bundle\MakerBundle\Validator;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Routing\Generator\UrlGenerator;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Serializer\SerializerInterface;
 use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
-
-
+use Symfony\Component\Validator\Constraints\Valid;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 class BookController extends AbstractController
 {
@@ -36,21 +38,18 @@ class BookController extends AbstractController
         $book = $bookRepository->find($id);
         if ($book) {
             $jsonBookList = $serializer->serialize($book, 'json',  ['groups' => 'getBooks']);
-            return new JsonResponse($jsonBookList, Response::HTTP_OK, [], true);
+            return new JsonResponse($jsonBookList, Response::HTTP_OK, ["nom" => "KODJO"], true);
         }
         return new JsonResponse([
-            "Non disponible",
-            Response::HTTP_NOT_FOUND,
-            [],
-            false
-        ]);
+            "message" => "Livre non trouvé",
+        ], Response::HTTP_NOT_FOUND);
         // $jsonBookList, Response::HTTP_OK, [], true);
     }
 
     #[Route('/api/books/{id}/description', name: 'descriptionBook', methods: ['GET'])]
-    public function getDescriptionBook($id, BookRepository $bookRepository, SerializerInterface $serializer): JsonResponse
+    public function getDescriptionBook(Book $book, BookRepository $bookRepository, SerializerInterface $serializer): JsonResponse
     {
-        $book = $bookRepository->find($id);
+        // $book = $bookRepository->find($id);
         if ($book) {
             $jsonBookDescription = $serializer->serialize($book->getCoverText(), 'json',  ['groups' => 'getDescription']);
             return new JsonResponse($jsonBookDescription, Response::HTTP_OK, [], true);
@@ -80,7 +79,8 @@ class BookController extends AbstractController
         SerializerInterface $serializer,
         EntityManagerInterface $entityManager,
         UrlGeneratorInterface $urlGenerator,
-        AuthorRepository $authorRepository
+        AuthorRepository $authorRepository,
+        ValidatorInterface $validator
     ): JsonResponse {
         // Désérialisation des données JSON en un objet Book
         $book = $serializer->deserialize($request->getContent(), Book::class, 'json');
@@ -98,43 +98,71 @@ class BookController extends AbstractController
             $book->setAuthor($author);
         }
 
+        // Validation de l'objet Book
+        // On vérifie les erreurs
+        $errors = $validator->validate($book);
+
+        if ($errors->count() > 0) {
+            throw new HttpException(JsonResponse::HTTP_BAD_REQUEST, "La requête est invalide");
+            // return new JsonResponse($serializer->serialize($errors, 'json'), JsonResponse::HTTP_BAD_REQUEST, [], true);
+        }
+
+
         // Persistez le livre et effectuez la sauvegarde
         $entityManager->persist($book);
         $entityManager->flush();
 
-        // Sérialisation du livre en JSON en incluant uniquement les champs spécifiés dans le groupe "getBooks"
-        $jsonBook = $serializer->serialize($book, 'json', ['groups' => 'getBooks']);
 
-        // Génération de l'URL pour accéder aux détails du livre nouvellement créé
+        // Sérialisation de l'objet Book en JSON
+        $jsonBook = $serializer->serialize($book, 'json', ['groups' => 'getBooks']);
         $location = $urlGenerator->generate('detailBook', ['id' => $book->getId()], UrlGeneratorInterface::ABSOLUTE_URL);
 
         // Réponse JSON avec le livre créé, un statut HTTP 201 Created et un en-tête "Location" pointant vers l'URL de détails du livre
-        return new JsonResponse($jsonBook, Response::HTTP_CREATED, ["Location" => $location], true);
+        return new JsonResponse($jsonBook, Response::HTTP_CREATED, ["Location" => $location, "test " => "Kodjo"], true);
     }
 
 
     // -----------------------UPDATE-------------------------------------------
     #[Route('/api/books/{id}', name: "updateBook", methods: ['PUT'])]
-    public function updateBook($id, Request $request, SerializerInterface $serializer, EntityManagerInterface $em, AuthorRepository $authorRepository): JsonResponse
+    public function updateBook(Request $request, SerializerInterface $serializer, Book $currentBook, EntityManagerInterface $em, AuthorRepository $authorRepository): JsonResponse
     {
-        $currentBook = $authorRepository->find($id);
         $updatedBook = $serializer->deserialize(
             $request->getContent(),
             Book::class,
             'json',
             [AbstractNormalizer::OBJECT_TO_POPULATE => $currentBook]
         );
-
         $content = $request->toArray();
         $idAuthor = $content['idAuthor'] ?? -1;
         $updatedBook->setAuthor($authorRepository->find($idAuthor));
 
         $em->persist($updatedBook);
         $em->flush();
-        //
-        $jsonBookList = $serializer->serialize($updatedBook, 'json',  ['groups' => 'getBooks']);
-
-        //
-        return new JsonResponse($jsonBookList, JsonResponse::HTTP_OK);
+        return new JsonResponse(null, JsonResponse::HTTP_NO_CONTENT);
     }
+
+
+    // #[Route('/api/books/{id}', name: "updateBook", methods: ['PUT'])]
+    // public function updateBook($id, Request $request, SerializerInterface $serializer, EntityManagerInterface $em, AuthorRepository $authorRepository): JsonResponse
+    // {
+    //     $currentBook = $authorRepository->find($id);
+    //     $updatedBook = $serializer->deserialize(
+    //         $request->getContent(),
+    //         Book::class,
+    //         'json',
+    //         [AbstractNormalizer::OBJECT_TO_POPULATE => $currentBook]
+    //     );
+
+    //     $content = $request->toArray();
+    //     $idAuthor = $content['idAuthor'] ?? -1;
+    //     $updatedBook->setAuthor($authorRepository->find($idAuthor));
+
+    //     $em->persist($updatedBook);
+    //     $em->flush();
+    //     //
+    //     $jsonBookList = $serializer->serialize($updatedBook, 'json',  ['groups' => 'getBooks']);
+
+    //     //
+    //     return new JsonResponse($jsonBookList, JsonResponse::HTTP_OK, [], true);
+    // }
 }
